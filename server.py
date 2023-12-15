@@ -13,7 +13,7 @@ def handle_client_connection(conn, addr):
 
     while True:
         command = conn.recv(SIZE).decode()
-        if not command:
+        if not command or command == "bye":
             break
 
         bytes_list = command.split()
@@ -21,25 +21,25 @@ def handle_client_connection(conn, addr):
 
         opcode = bytes_data[0]
         msb = opcode >> 5
-
         opcode = format(msb, '03b')
-
-        filename_length = bytes_data[0] & 0b00011111
-        filename_start = 1
-        filename_end = filename_start + filename_length
-        filename_bytes = bytes_data[filename_start:filename_end]
-        filename = filename_bytes.decode('utf-8')
-        file_size_start = filename_end
-        file_size_end = file_size_start + 4
-        file_size_bytes = bytes_data[file_size_start:file_size_end]
+        
 
         if opcode == "000":
+            filename_length = bytes_data[0] & 0b00011111
+            filename_start = 1
+            filename_end = filename_start + filename_length
+            filename_bytes = bytes_data[filename_start:filename_end]
+            filename = filename_bytes.decode('utf-8')
+            file_size_start = filename_end
+            file_size_end = file_size_start + 4
+            file_size_bytes = bytes_data[file_size_start:file_size_end]
+
             file_size = struct.unpack('>I', file_size_bytes)[0]
 
-            print(f"Extracted Opcode: {opcode}")
+            print(f"\nExtracted Opcode: {opcode}")
             print(f"Extracted Filename Length: {filename_length} bytes")
             print(f"Extracted Filename Bytes: {filename}")
-            print(f"Extracted File Size: {file_size} bytes\n")
+            print(f"Extracted File Size: {file_size} bytes")
 
             received_data = b""
             total_bytes_received = 0
@@ -58,8 +58,16 @@ def handle_client_connection(conn, addr):
 
 
         elif opcode == "001":
+            filename_length = bytes_data[0] & 0b00011111
+            filename_start = 1
+            filename_end = filename_start + filename_length
+            filename_bytes = bytes_data[filename_start:filename_end]
+            filename = filename_bytes.decode('utf-8')
+            file_size_start = filename_end
+            file_size_end = file_size_start + 4
+            file_size_bytes = bytes_data[file_size_start:file_size_end]
 
-            print(f"Extracted Opcode: {opcode}")
+            print(f"\nExtracted Opcode: {opcode}")
             print(f"Extracted Filename Length: {filename_length} bytes")
             print(f"Extracted Filename Bytes: {filename}")
 
@@ -81,23 +89,29 @@ def handle_client_connection(conn, addr):
                 conn.send("FileNotExists".encode())
 
         elif opcode == "010":
+            old_name_length = bytes_data[0] & 0b00011111
+            old_name_start = 1
+            old_name_end = old_name_start + old_name_length
+            old_name_bytes = bytes_data[old_name_start:old_name_end]
+            oldfilename = old_name_bytes.decode('utf-8')
 
-            print(f"Extracted Opcode: {opcode}")
-            print(f"Extracted Filename Length: {filename_length} bytes")
-            print(f"Extracted Filename Bytes: {filename}")
+            new_name_length = bytes_data[old_name_end] & 0b00011111
+            new_name_start = old_name_end + 1
+            new_name_end = new_name_start + new_name_length
+            new_name_bytes = bytes_data[new_name_start:new_name_end]
+            newfilename = new_name_bytes.decode('utf-8')
+
+            old_file_path = "database/" + oldfilename
+            new_file_path = "database/" + newfilename
             
-            if len(parts) == 3:
-                old_name = parts[1]
-                new_name = parts[2]
-                old_path = "database/" + old_name
-                new_path = "database/" + new_name
-                if os.path.exists(old_path):
-                    os.rename(old_path, new_path)
-                    conn.send("File renamed successfully\n".encode())
-                else:
-                    conn.send("FileNotExists\n".encode())
+            if os.path.exists(old_file_path):
+                print(f"\nExtracted Opcode: {opcode}")
+                print(f"Extracted Filename Length: {old_name_length} bytes")
+                print(f"Extracted Filename Bytes: {new_name_length}\n")
+                os.rename(old_file_path, new_file_path)
+                conn.send("File Renamed\n".encode())
             else:
-                conn.send("InvalidCommand\n".encode())
+                conn.send("File Not Found\n".encode())
 
 
     conn.close()
