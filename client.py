@@ -4,19 +4,61 @@ import os
 import time
 
 IP = socket.gethostbyname(socket.gethostname())
-PORT = 1234
+PORT = 5555
 ADDR = (IP, PORT)
 FORMAT = "utf-8"
 SIZE = 1024
 
-import os
 
-def put_udp(client, data, server_addr):
-    client.sendto(data, server_addr)
-   
+def summary_tcp(client, concatenated_data_hex):
+    client.send(concatenated_data_hex)
+    response = client.recv(SIZE).decode(FORMAT)
+    return response
+
+def summary_udp(client, concatenated_data_hex, server_addr):
+    client.sendto(concatenated_data_hex, server_addr)
+    response, _ = client.recvfrom(SIZE)
+    return response.decode(FORMAT)
+
+def summary(client, filename, opcode_filename_length_byte, filename_bytes, protocol_choice, server_addr):
+    concatenated_data = opcode_filename_length_byte + filename_bytes
+    concatenated_data_hex = ' '.join(format(byte, '02X') for byte in concatenated_data)
+
+    if protocol_choice == "TCP":
+        response = summary_tcp(client, concatenated_data_hex.encode(FORMAT))
+    elif protocol_choice == "UDP":
+        response = summary_udp(client, concatenated_data_hex.encode(FORMAT), server_addr)
+    else:
+        print("Invalid protocol choice.")
+        return
+    
+    if response == "FileExists":
+        file_size = int(client.recv(SIZE).decode())
+
+        received_data = b""
+        total_bytes_received = 0
+
+        while total_bytes_received < file_size:
+            data = client.recv(SIZE)
+            received_data += data
+            total_bytes_received += len(data)
+
+        with open("client_data/" + filename + "_summary", "wb") as file:
+            sum_filename = filename + "_summmary"
+            file.write(received_data)
+        print(f"[CLIENT]: File '{sum_filename}' Received And Saved.\n")
+    else:
+        print(f"[CLIENT]: File '{filename}' Does Not Exist On Server.\n") 
+
+
+
 
 def put_tcp(client, data):
     client.sendall(data)
+
+def put_udp(client, data, server_addr):
+    client.sendto(data, server_addr)
+    #print(data)
 
 
 def put(client, filename, opcode_filename_length_byte, filename_bytes, file_size_bytes, protocol_choice, server_addr):
@@ -32,6 +74,7 @@ def put(client, filename, opcode_filename_length_byte, filename_bytes, file_size
         file_size = struct.unpack('>I', file_size_bytes)[0]
         file_path = "client_data/" + filename
 
+        time.sleep(1)
         total_bytes_sent = 0
         with open(file_path, "rb") as file:
             while total_bytes_sent < file_size:
@@ -81,16 +124,31 @@ def change(client, opcode_to_byte, old_name_bytes, new_to_name, new_name_bytes, 
             response, _ = client.recvfrom(SIZE)
             print(f"[SERVER]: {response.decode(FORMAT)}")
 
-def get(client, filename, opcode_filename_length_byte, filename_bytes):
+def get_tcp(client, concatenated_data_hex):
+    client.send(concatenated_data_hex)
+    response = client.recv(SIZE).decode(FORMAT)
+    return response
+
+def get_udp(client, concatenated_data_hex, server_addr):
+    client.sendto(concatenated_data_hex, server_addr)
+    response, _ = client.recvfrom(SIZE)
+    return response.decode(FORMAT)
+
+def get(client, filename, opcode_filename_length_byte, filename_bytes, protocol_choice, server_addr):
     concatenated_data = opcode_filename_length_byte + filename_bytes
     concatenated_data_hex = ' '.join(format(byte, '02X') for byte in concatenated_data)
-    #print(concatenated_data_hex)
+    # print(concatenated_data_hex)
 
-    client.send(concatenated_data_hex.encode(FORMAT))
-    response = client.recv(SIZE).decode(FORMAT)
+    if protocol_choice == "TCP":
+        response = get_tcp(client, concatenated_data_hex.encode(FORMAT))
+    elif protocol_choice == "UDP":
+        response = get_udp(client, concatenated_data_hex.encode(FORMAT), server_addr)
+    else:
+        print("Invalid protocol choice.")
+        return
 
     if response == "FileExists":
-        file_size = int(client.recv(SIZE).decode())  # Receive file size from server
+        file_size = int(client.recv(SIZE).decode())
 
         received_data = b""
         total_bytes_received = 0
@@ -104,7 +162,7 @@ def get(client, filename, opcode_filename_length_byte, filename_bytes):
             file.write(received_data)
         print(f"[CLIENT]: File '{filename}' Received And Saved.\n")
     else:
-        print(f"[CLIENT]: File '{filename}' Does Not Exist On Server.\n")   
+        print(f"[CLIENT]: File '{filename}' Does Not Exist On Server.\n") 
 
 def main():
     user_input_ip = input("\nEnter IP address (leave empty for default): ")
@@ -173,13 +231,13 @@ def main():
             if len(parts) == 2:
                 filename = parts[1]
                 
-                # Ensure filename length does not exceed 31 characters
+                # filename length does not exceed 31 characters
                 max_filename_length = 31
                 if len(filename) > max_filename_length:
                     print(f"File Name Exceeds Maximum Length: ({max_filename_length} Characters).")
                 else:
                     # Convert the filename length to binary (maximum of 5 bits)
-                    filename_length_binary = format(len(filename), '05b')  # '05b' formats as a 5-bit binary
+                    filename_length_binary = format(len(filename), '05b')  # format as a 5-bit binary
 
                     # Get the filename in bytes
                     filename_bytes = filename.encode('utf-8')  # Encoding the filename string to bytes
@@ -188,9 +246,8 @@ def main():
                     combined_byte = (0b001 << 5) | int(filename_length_binary, 2)
                     opcode_filename_length_byte = combined_byte.to_bytes(1, byteorder='big')
 
-                    get(client, filename, opcode_filename_length_byte, filename_bytes)
+                    get(client, filename, opcode_filename_length_byte, filename_bytes, protocol_choice, ADDR)
 
-        # Inside the main function where command handling occurs
         elif command.startswith("change"):
             parts = command.split()
             if len(parts) == 3:
@@ -209,7 +266,6 @@ def main():
                     old_name_bytes = old_name.encode('utf-8')
                     new_name_bytes = new_name.encode('utf-8')
 
-                    # Construct the byte sequence
                     opcode_byte = (0b010 << 5) | int(old_name_length_binary, 2)
                     new_name = (0b00000000) | int(new_name_length_binary, 2)
                     opcode_to_byte = opcode_byte.to_bytes(1, byteorder='big')
@@ -218,12 +274,42 @@ def main():
                     change(client, opcode_to_byte, old_name_bytes, new_to_name, new_name_bytes, protocol_choice, ADDR)
             else:
                 response = "Invalid Input Format.\n\tExample: change <oldfilename> <newfilename>"
+       
+        elif command.startswith("summary"):
+            parts = command.split()
+            if len(parts) == 2:
+                filename = parts[1]
+
+                if filename.endswith(".txt"):
+                    # Ensure filename length does not exceed 31 characters
+                    max_filename_length = 31
+                    if len(filename) > max_filename_length:
+                        print(f"File Name Exceeds Maximum Length: ({max_filename_length} Characters).")
+                    else:
+                        # Convert the filename length to binary (maximum of 5 bits)
+                        filename_length_binary = format(len(filename), '05b')  # format as a 5-bit binary
+
+                        # Get the filename in bytes
+                        filename_bytes = filename.encode('utf-8')  # Encoding the filename string to bytes
+
+                        # Combine opcode (3 bits) and filename length (5 bits) into one byte
+                        combined_byte = (0b011 << 5) | int(filename_length_binary, 2)
+                        opcode_filename_length_byte = combined_byte.to_bytes(1, byteorder='big')
+
+                        summary(client, filename, opcode_filename_length_byte, filename_bytes, protocol_choice, ADDR)
+                else:
+                    print("The file is not a text file.")
+                    break   
 
         elif command == "bye":
-            client.send("bye".encode(FORMAT))
-            client.close()
-            print("[CLIENT]: Connection Closed.\n")
-            os.remove("setup/setup.txt")
+            if protocol_choice == "TCP":
+                client.send("bye".encode())
+                #client.close()
+                print("[CLIENT]: Connection Closed.\n")
+            elif protocol_choice == "UDP":
+                client.sendto("bye".encode(), ADDR)
+                #client.close()
+                print("[CLIENT]: Connection Closed.\n")
             break
 
         elif command == "help":
