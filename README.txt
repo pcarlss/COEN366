@@ -38,9 +38,9 @@ After that, you should receive a message on the server side acknowledging the co
 
 Server.py: 
 --------------------------------------------------
-[LISTENING] Server is listening on: ('192.168.2.15', 5555)
+[LISTENING] Server is listening on: ('X.X.X.X', 5555)
 
-[NEW CONNECTION] ('192.168.2.15', 5555) connected.
+[NEW CONNECTION] ('X.X.X.X', 5555) connected.
 
 
 
